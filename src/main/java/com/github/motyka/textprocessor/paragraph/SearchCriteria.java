@@ -1,8 +1,8 @@
 package com.github.motyka.textprocessor.paragraph;
 
-import lombok.Data;
+import lombok.Value;
 
-@Data
+@Value
 public class SearchCriteria {
 	private String text;
 	private String searchTerm;

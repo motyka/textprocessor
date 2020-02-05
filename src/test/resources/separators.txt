@@ -1,0 +1,5 @@
+first new line
+second! separated. by, a dot
+third separated, by a punctuation
+forth separated by a space
+fifthIsToLongAndForcedToSeparateAtTheLimit

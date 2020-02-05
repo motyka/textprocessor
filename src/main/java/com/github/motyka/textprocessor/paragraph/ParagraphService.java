@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13,155 +15,158 @@ import java.util.regex.Pattern;
 @Service
 public class ParagraphService {
 
-	public List<Paragraph> splitAndSearch2(String text, String searchTerm, int mainLimit, int secondaryLimit) {
-		boolean paragraphStarted = false;
-		int startIndex = 0;
-		int length = 0;
-
-		for(int i = 0; i < text.length(); i++) {
-			char ch = text.charAt(i);
-			if(!paragraphStarted && Character.isWhitespace(ch)) continue;
-
-			if(!paragraphStarted) {
-				paragraphStarted = true;
-				startIndex = i;
-			}
-
-
-		}
-		return null;
-	}
-
 	private final Logger logger = LoggerFactory.getLogger(ParagraphService.class);
 
 	private static final Pattern PUNCTUATION = Pattern.compile("\\p{Punct}");
-	private static final Pattern LAST_PUNCTUATION = Pattern.compile(".*\\p{Punct}");
 	// there can't be alphanumeric characters between new line characters
 	private static final Pattern NEW_LINES = Pattern.compile("\n[^\\p{Alnum}]*\n");
 	// there needs to be a paragraph (alphanumeric characters) before the dot
 	private static final Pattern DOT = Pattern.compile("\\p{Alnum}.*?\\.");
 	// only keep punctuation that adhere to the paragraph
 	private static final Pattern TRIM = Pattern.compile("\\p{Punct}*\\p{Alnum}");
-	private static final Pattern TRIM_END = Pattern.compile(".*\\p{Alnum}\\p{Punct}*");
 
 	public List<Paragraph> splitAndSearch(String text, String searchTerm, int mainLimit, int secondaryLimit) {
-		StringBuilder sb = new StringBuilder(text);
+		logger.info("split {} - {} and search for:{}", secondaryLimit, mainLimit, searchTerm);
+
+		validate(text, mainLimit, secondaryLimit);
+		StringBuilder textLeft = new StringBuilder(text);
 		List<Paragraph> paragraphs = new ArrayList<>();
 
-		trimEnd(sb);
+		trimEnd(textLeft);
+		// the starting position of paragraph
 		int offset = 0;
-		offset += trimStart(sb);
-		while(sb.length() > 0) {
+		offset += trimStart(textLeft);
+
+		while(textLeft.length() > 0) {
 			// always split at double new line before 1200 character (can be separated by non alphanumeric characters)
-			Matcher matcher = NEW_LINES.matcher(sb);
+			Matcher matcher = NEW_LINES.matcher(textLeft);
 			if(matcher.find() && isInRange(matcher.start(), mainLimit)) {
 				logger.info("double new line before *mainLimit*");
-				offset += addParagraph(paragraphs, sb, offset, matcher.start());
+				offset += addParagraph(paragraphs, textLeft, offset, matcher.start(), searchTerm);
 				continue;
 			}
 
 			// no need to split anymore if too small
-			if(sb.length() < mainLimit) {
-				addParagraph(paragraphs, sb, offset, sb.length());
+			if(textLeft.length() < mainLimit) {
+				addParagraph(paragraphs, textLeft, offset, textLeft.length(), searchTerm);
 				break;
 			}
 
-			CharSequence mainSubstring = sb.subSequence(0, Math.min(sb.length(), mainLimit));
-			CharSequence secondarySubstring = sb.subSequence(0, Math.min(sb.length(), secondaryLimit));
+			CharSequence mainSubstring = textLeft.subSequence(0, Math.min(textLeft.length(), mainLimit));
+			CharSequence secondarySubstring = textLeft.subSequence(0, Math.min(textLeft.length(), secondaryLimit));
 
-			// SINGLE NEW LINE
-
-			// split at first new line between 800 - 1200 character
-			int index = sb.indexOf("\n", secondaryLimit);
-			if(isInRange(index, mainLimit)) {
-				logger.info("first new line between *secondaryLimit* - *mainLimit*");
-				offset += addParagraph(paragraphs, sb, offset, index);
-				continue;
-			}
-			// split at last new line before 800 character
-			index = sb.lastIndexOf("\n", secondaryLimit);
-			if(isInRange(index, secondaryLimit)) {
-				logger.info("first new line before *secondaryLimit*");
-				offset += addParagraph(paragraphs, sb, offset, index);
+			// NEW LINE
+			Optional<Integer> newLineResult = characterMatching("\n", textLeft, mainLimit, secondaryLimit);
+			if(newLineResult.isPresent()) {
+				logger.info("separating because of new line");
+				offset += addParagraph(paragraphs, textLeft, offset, newLineResult.get(), searchTerm);
 				continue;
 			}
 
 			// DOT
-
-			// split at first dot between 800 - 1200 character
-			matcher = DOT.matcher(mainSubstring);
-//			boolean find = matcher.find(Math.min(sb.length(), secondaryLimit));
-			index = matcher.results().filter(m -> m.end() >= secondaryLimit).map(MatchResult::end).findFirst().orElse(-1);
-			if(isInRange(index, mainLimit)) {
-				logger.info("first dot between *secondaryLimit* - *mainLimit*");
-				offset += addParagraph(paragraphs, sb, offset, index);
-				continue;
-			}
-			// split at last dot before 800 character
-			matcher = DOT.matcher(secondarySubstring);
-			index = matcher.results().reduce((f, s) -> s).map(MatchResult::end).orElse(-1);
-			if(isInRange(index, secondaryLimit)) {
-				logger.info("last dot before *secondaryLimit*");
-				offset += addParagraph(paragraphs, sb, offset, index);
+			Optional<Integer> dotResult = patternMatching(DOT, mainSubstring, secondarySubstring, mainLimit, secondaryLimit);
+			if(dotResult.isPresent()) {
+				logger.info("separating because of dot");
+				offset += addParagraph(paragraphs, textLeft, offset, dotResult.get(), searchTerm);
 				continue;
 			}
 
 			// PUNCTUATION
-
-			// split at first punctuation between 800 - 1200 character
-			matcher = PUNCTUATION.matcher(mainSubstring);
-//			if(matcher.find(Math.min(sb.length(), secondaryLimit)) && isInRange(matcher.start(), mainLimit)) {
-			index = matcher.results().filter(m -> m.end() >= secondaryLimit).map(MatchResult::end).findFirst().orElse(-1);
-			if(isInRange(index, mainLimit)) {
-				logger.info("first punctuation between *secondaryLimit* - *mainLimit*");
-				offset += addParagraph(paragraphs, sb, offset, index);
-				continue;
-			}
-			// split at last punctuation before 800 character
-			matcher = PUNCTUATION.matcher(secondarySubstring);
-			index = matcher.results().reduce((f, s) -> s).map(MatchResult::end).orElse(-1);
-			if(isInRange(index, secondaryLimit)) {
-				logger.info("last punctuation before *secondaryLimit*");
-				offset += addParagraph(paragraphs, sb, offset, index);
+			Optional<Integer> punctuationResult = patternMatching(PUNCTUATION, mainSubstring, secondarySubstring, mainLimit, secondaryLimit);
+			if(punctuationResult.isPresent()) {
+				logger.info("separating because of punctuation");
+				offset += addParagraph(paragraphs, textLeft, offset, punctuationResult.get(), searchTerm);
 				continue;
 			}
 
 			// SPACE
-
-			// split at first space between 800 - 1200 character
-			index = sb.indexOf(" ", secondaryLimit);
-			if(isInRange(index, mainLimit)) {
-				logger.info("first space between *secondaryLimit* - *mainLimit*");
-				offset += addParagraph(paragraphs, sb, offset, index);
-				continue;
-			}
-			// split at last space before 800 character
-			index = sb.lastIndexOf(" ", secondaryLimit);
-			if(isInRange(index, secondaryLimit)) {
-				logger.info("last space before *secondaryLimit*");
-				offset += addParagraph(paragraphs, sb, offset, index);
+			Optional<Integer> spaceResult = characterMatching(" ", textLeft, mainLimit, secondaryLimit);
+			if(spaceResult.isPresent()) {
+				logger.info("separating because of space");
+				offset += addParagraph(paragraphs, textLeft, offset, spaceResult.get(), searchTerm);
 				continue;
 			}
 
 			// split into *mainLimit* chunk
-			offset += addParagraph(paragraphs, sb, offset, Math.min(sb.length(), mainLimit));
+			int chunkSize = Math.min(textLeft.length(), mainLimit);
+			offset += addParagraph(paragraphs, textLeft, offset, chunkSize, searchTerm);
 		}
 
 		return paragraphs;
 	}
 
-	private int addParagraph(List<Paragraph> paragraphs, StringBuilder text, int start, int length) {
+	private void validate(String text, int mainLimit, int secondaryLimit) {
+		Objects.requireNonNull(text, "The text can't be null");
+
+		if(mainLimit <= 0 || secondaryLimit <= 0) {
+			throw new IllegalArgumentException("The main and secondary limits muse be greater than 0.");
+		}
+		if(secondaryLimit > mainLimit) {
+			throw new IllegalArgumentException("The secondary limit can't be greater than the main limit.");
+		}
+	}
+
+	/**
+	 * Add a new paragraph and removes it from the passed text.
+	 * @param paragraphs
+	 * @param text
+	 * @param start
+	 * @param length
+	 * @return number of characters removed from the passed text
+	 */
+	private int addParagraph(List<Paragraph> paragraphs, StringBuilder text, int start, int length, String searchTerm) {
 		logger.info("new paragraph start {}, length {}", start, length);
 		StringBuilder paragraph = new StringBuilder(text.substring(0, length));
 		int trimmedLength = length - trimEnd(paragraph);
-		paragraphs.add(new Paragraph(paragraph.toString(), start, trimmedLength, false));
+		boolean contains = search(paragraph, searchTerm);
+
+		paragraphs.add(new Paragraph(paragraph.toString(), start, trimmedLength, contains));
 		text.delete(0, length);
 		return length + trimStart(text);
+	}
+
+	private Optional<Integer> patternMatching(Pattern pattern, CharSequence mainSubstring, CharSequence secondarySubstring, int mainLimit, int secondaryLimit) {
+		// split at first match between *secondaryLimit* - *mainLimit* character
+		Matcher matcher = pattern.matcher(mainSubstring);
+		int index = matcher.results().filter(m -> m.end() >= secondaryLimit).map(MatchResult::end).findFirst().orElse(-1);
+		if(isInRange(index, mainLimit)) {
+			logger.info("first pattern match between {} - {}: {}", secondaryLimit, mainLimit, index);
+			return Optional.of(index);
+		}
+		// split at last match before *secondaryLimit* character
+		matcher = pattern.matcher(secondarySubstring);
+		index = matcher.results().reduce((f, s) -> s).map(MatchResult::end).orElse(-1);
+		if(isInRange(index, secondaryLimit)) {
+			logger.info("last pattern match before {}: {}", secondaryLimit, index);
+			return Optional.of(index);
+		}
+		return Optional.empty();
+	}
+
+	private Optional<Integer> characterMatching(String separator, StringBuilder text, int mainLimit, int secondaryLimit) {
+		// split at first match between *secondaryLimit* - *mainLimit* character
+		int index = text.indexOf(separator, secondaryLimit);
+		if(isInRange(index, mainLimit)) {
+			logger.info("first character match between {} - {}: {}", secondaryLimit, mainLimit, index);
+			return Optional.of(index);
+		}
+		// split at last match before *secondaryLimit* character
+		index = text.lastIndexOf(separator, secondaryLimit);
+		if(isInRange(index, secondaryLimit)) {
+			logger.info("last character match before {}: {}", secondaryLimit, index);
+			return Optional.of(index);
+		}
+		return Optional.empty();
 	}
 
 	private boolean isInRange(int index, int upperBound) {
 		// index == -1 means the term was not found
 		return index >= 0 && index < upperBound;
+	}
+
+	private boolean search(StringBuilder paragraph, String searchTerm) {
+		// assumed that the search team can't be empty to do the search
+		return searchTerm != null && !searchTerm.isEmpty() && paragraph.indexOf(searchTerm) >= 0;
 	}
 
 	private int trimStart(StringBuilder sb) {

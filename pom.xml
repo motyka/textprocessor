@@ -19,6 +19,7 @@
 		<lombok.version>1.18.10</lombok.version>
 		<junit.version>5.5.2</junit.version>
 		<mockito.version>3.2.4</mockito.version>
+		<springfox.version>2.9.2</springfox.version>
 	</properties>
 
 	<dependencies>
@@ -45,6 +46,18 @@
 			<version>${lombok.version}</version>
 		</dependency>
 
+		<dependency>
+			<groupId>io.springfox</groupId>
+			<artifactId>springfox-swagger2</artifactId>
+			<version>${springfox.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>io.springfox</groupId>
+			<artifactId>springfox-swagger-ui</artifactId>
+			<version>${springfox.version}</version>
+		</dependency>
+
 		<!-- Tests -->
 		<dependency>
 			<groupId>org.junit.jupiter</groupId>
@@ -68,5 +81,4 @@
 			</plugin>
 		</plugins>
 	</build>
-
 </project>
